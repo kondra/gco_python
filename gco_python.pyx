@@ -6,7 +6,7 @@ cimport numpy as np
 from libcpp.map cimport map
 from libcpp.pair cimport pair
 
-DEF DEBUG_CHECKS = True   # true if laborious parameter checks are needed 
+DEF DEBUG_CHECKS = False   # true if laborious parameter checks are needed 
 
 # This is the energy type; should match the EnergyType and
 # EnergyTermType in GCOptimization.h
@@ -23,6 +23,7 @@ ELSE:
     
 
 np.import_array()
+
 
 cdef extern from "GCoptimization.h":
     cdef cppclass GCoptimizationGridGraph:
@@ -54,8 +55,8 @@ cdef extern from "GCoptimization.h":
         void setLabelCost(int *)
         void setLabel(int node, int label)
         NRG_TYPE compute_energy()
-        
-        
+
+
 cdef cppclass PottsFunctor(GCoptimizationGridGraph.SmoothCostFunctor):
     NRG_TYPE strength_
     
@@ -64,7 +65,8 @@ cdef cppclass PottsFunctor(GCoptimizationGridGraph.SmoothCostFunctor):
     
     NRG_TYPE compute(int s1, int s2, int l1, int l2):
         return -this.strength_ if l1 == l2 else 0
-        
+
+
 cdef cppclass GeneralizedPottsFunctor(GCoptimizationGridGraph.SmoothCostFunctor):
     PW_MAP_T data_
     
@@ -75,13 +77,16 @@ cdef cppclass GeneralizedPottsFunctor(GCoptimizationGridGraph.SmoothCostFunctor)
         if l1 != l2: 
             return 0
         else:
-            pair = tuple(sorted([s1,s2]))
+            if s1 < s2:
+                pair = tuple(s1, s2)
+            else:
+                pair = tuple(s2, s1)
             return -this.data_[pair]  
 
 
 def cut_simple(np.ndarray[NRG_DTYPE_t, ndim=3, mode='c'] unary_cost,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost, n_iter=5,
-        algorithm='expansion'):
+               np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost,
+               n_iter=5, algorithm='expansion'):
     """
     Apply multi-label graphcuts to grid graph.
 
@@ -130,15 +135,13 @@ def cut_simple(np.ndarray[NRG_DTYPE_t, ndim=3, mode='c'] unary_cost,
     for i in xrange(w * h):
         result_ptr[i] = gc.whatLabel(i)
 
-
     del gc
 
     return result, nrg
     
     
 def cut_simple_gen_potts(np.ndarray[NRG_DTYPE_t, ndim=3, mode='c'] unary_cost,
-        object pairwise_cost, n_iter=5,
-        algorithm='expansion'):
+                         object pairwise_cost, n_iter=5, algorithm='expansion'):
     """
     Apply multi-label graphcuts to grid graph.
 
@@ -189,18 +192,17 @@ def cut_simple_gen_potts(np.ndarray[NRG_DTYPE_t, ndim=3, mode='c'] unary_cost,
     for i in xrange(w * h):
         result_ptr[i] = gc.whatLabel(i)
 
-
     del gc
     del functor
+
     return result, nrg
     
 
 def cut_simple_vh(np.ndarray[NRG_DTYPE_t, ndim=3, mode='c'] unary_cost,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] costV,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] costH, 
-        n_iter=5,
-        algorithm='expansion'):
+                  np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost,
+                  np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] costV,
+                  np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] costH,
+                  n_iter=5, algorithm='expansion'):
     """
     Apply multi-label graphcuts to grid graph.
 
@@ -256,12 +258,14 @@ def cut_simple_vh(np.ndarray[NRG_DTYPE_t, ndim=3, mode='c'] unary_cost,
         result_ptr[i] = gc.whatLabel(i)
         
     del gc
+
     return result, nrg
 
+
 def energy_of_graph_assignment(np.ndarray[np.int32_t, ndim=2, mode='c'] edges,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] unary_cost,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost,
-        np.ndarray[np.int32_t, ndim=1, mode='c'] assignment) :
+                               np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] unary_cost,
+                               np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost,
+                               np.ndarray[np.int32_t, ndim=1, mode='c'] assignment):
     """
     Calculate the energy of a particular assignment of labels to a graph
 
@@ -277,7 +281,7 @@ def energy_of_graph_assignment(np.ndarray[np.int32_t, ndim=2, mode='c'] edges,
     assigment : ndarray, int32, shape= (n_vertices,)
         Assignments of labels to nodes 
     """
-    
+
     if (pairwise_cost != pairwise_cost.T).any():
         raise ValueError("pairwise_cost must be symmetric.")
 
@@ -307,19 +311,19 @@ def energy_of_graph_assignment(np.ndarray[np.int32_t, ndim=2, mode='c'] edges,
     for i in xrange(n_vertices):
         gc.setLabel(i, assignment[i])
 
-
     nrg = gc.compute_energy()
+
+    del gc
 
     return nrg
 
-    
-
 
 def cut_from_graph(np.ndarray[np.int32_t, ndim=2, mode='c'] edges,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] unary_cost,
-        np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost, n_iter=5,
-        algorithm='expansion', np.ndarray[NRG_DTYPE_t, ndim=1, mode='c'] weights=None,
-        np.ndarray[np.int32_t, ndim=1, mode='c'] label_cost=None):
+                   np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] unary_cost,
+                   np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] pairwise_cost,
+                   n_iter=5, algorithm='expansion', 
+                   np.ndarray[NRG_DTYPE_t, ndim=1, mode='c'] label_cost=None,
+                   np.ndarray[NRG_DTYPE_t, ndim=1, mode='c'] weights=None):
     """
     Apply multi-label graphcuts to arbitrary graph given by `edges`.
 
@@ -399,14 +403,15 @@ def cut_from_graph(np.ndarray[np.int32_t, ndim=2, mode='c'] edges,
         result_ptr[i] = gc.whatLabel(i)
 
     del gc
+
     return result, nrg
 
     
 def cut_from_graph_gen_potts(
         np.ndarray[NRG_DTYPE_t, ndim=2, mode='c'] unary_cost,
-        object pairwise_cost, n_iter=5,
-        algorithm='expansion',
-        np.ndarray[np.int32_t, ndim=1, mode='c'] label_cost=None):
+        object pairwise_cost,
+        n_iter=5, algorithm='expansion',
+        np.ndarray[NRG_DTYPE_t, ndim=1, mode='c'] label_cost=None):
     """
     Apply multi-label graphcuts to arbitrary graph given by `edges`.
 
@@ -460,4 +465,5 @@ def cut_from_graph_gen_potts(
         
     del gc
     del functor
+
     return result, nrg
