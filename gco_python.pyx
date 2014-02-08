@@ -5,6 +5,7 @@ cimport numpy as np
 
 from libcpp.map cimport map
 from libcpp.pair cimport pair
+from libcpp.vector cimport vector
 
 DEF DEBUG_CHECKS = True   # true if laborious parameter checks are needed 
 
@@ -15,13 +16,12 @@ DEF NRG_TYPE_STR = float
 IF NRG_TYPE_STR == int:
     ctypedef np.int32_t NRG_DTYPE_t
     ctypedef int NRG_TYPE
-    ctypedef map[pair[int,int],int] PW_MAP_T   # map (s1, s2) -> strength
+    ctypedef map[pair[int,int],vector[int]] PW_MAP_T   # map (s1, s2) -> strength
 ELSE:
     ctypedef np.float64_t NRG_DTYPE_t
     ctypedef double NRG_TYPE
-    ctypedef map[pair[int,int],double] PW_MAP_T   # map (s1, s2) -> strength
+    ctypedef map[pair[int,int],vector[double]] PW_MAP_T   # map (s1, s2) -> vector[strength]
     
-
 np.import_array()
 
 cdef extern from "GCoptimization.h":
@@ -67,7 +67,7 @@ cdef cppclass GeneralizedPottsFunctor(GCoptimizationGridGraph.SmoothCostFunctor)
             return 0
         else:
             pair = tuple(sorted([s1,s2]))
-            return -this.data_[pair]  
+            return -this.data_[pair][l1]
 
     
 def cut_from_graph_gen_potts(
@@ -101,7 +101,7 @@ def cut_from_graph_gen_potts(
         gc.setNeighbors(edge[0], edge[1])
         if edge[0] >= edge[1]:
             raise ValueError("The order of sites in the edge (%d,%d) should be ascending" % edge)
-        if strength < 0:
+        if np.any(np.array(strength) < 0):
             raise ValueError("Pairwise potential for the edge (%d,%d) is negative, "
                              "which is not allowed in generalized Potts" % edge)
 
